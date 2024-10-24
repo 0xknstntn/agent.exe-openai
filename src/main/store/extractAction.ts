@@ -36,6 +36,12 @@ export const extractAction = (
                 return { action: { type: "type", text: value.text } }
         }
 
+        if (not_parsed_action.indexOf("key") != -1) {
+                let index = not_parsed_action.indexOf("key")
+                let action = not_parsed_action.substring(index)
+                let value = JSON.parse(((String(action).substring("key".length)).replace(")", "")).replace("(", ""))  
+                return { action: { type: "key", text: value.text } }
+        }
 
         /*
         // Convert toolUse into NextAction

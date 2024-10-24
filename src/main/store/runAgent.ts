@@ -86,7 +86,7 @@ const promptForAction = async (
                                 content: [
                                         {
                                                 type: "text",
-                                                text: "The user will ask you to complete a task, and you must use their computer to do so. After each step, take a screenshot using the command screenshot({}) and carefully assess whether you have achieved the desired result. Clearly show your thoughts: \"I assessed step X...\". If the result is not correct, try again. Only when you are sure that the step has been completed correctly, proceed to the next one. Note that before entering a URL, you need to click on the browser'\''s address bar. Always call the tool! Always return the tool call.\n\nRespond only in the format described below. You are not allowed to respond in any other way except for the commands: screenshot, mouse_move, left_click, type. Only the command in responses, no arbitrary text.\n\nWhen you need to get a screenshot of the screen to understand where to go, you should write: screenshot({})\n\nIf you need to move the mouse cursor to complete the task, send me a message in the format: mouse_move({ \"x\": value of the cursor on the screen on the x-axis, \"y\": value of the cursor on the screen on the y-axis })\n\nIf you need to click the left mouse button to complete the task, you should send me a message in the format: left_click({})\n\nIf you need to type some text into a field to complete the task, you should send me a message in the format: type({ \"text\": the text to be entered into the input field })\n\nWhen the task is completed, send me a message in the format: finish({})\n\nRemember, my screen size is 1440/900, which means that the screenshots I send have this size, so you should provide more precise coordinates for the cursor.\n\nAlso, remember that you can'\''t use the ` symbol for command highlighting. The message with the command should be presented as text without highlights."
+                                                text: "The user will ask you to complete a task and you must use their computer to do so. After each step, take a screenshot using the command screenshot({}) and carefully assess whether you have achieved the desired result. Clearly show your thoughts: \"I assessed step X\". If the result is not correct, try again. Only when you are sure that the step has been completed correctly, proceed to the next one. Note that before entering a URL, you need to click on the browser'\''s address bar. Always call the tool! Always return the tool call.\n\nRespond only in the format described below. You are not allowed to respond in any other way except for the commands: screenshot, mouse_move, left_click, type. Only the command in responses, no arbitrary text.\n\nWhen you need to get a screenshot of the screen to understand where to go, you should write: screenshot({})\n\nIf you need to move the mouse cursor to complete the task, send me a message in the format: mouse_move({ \"x\": value of the cursor on the screen on the x-axis, \"y\": value of the cursor on the screen on the y-axis })\n\nIf you need to click the left mouse button to complete the task, you should send me a message in the format: left_click({})\n\nIf you need to type some text into a field to complete the task, you should send me a message in the format: type({ \"text\": the text to be entered into the input field })\n\nIf you need to press a button on the keyboard to complete the task, you should send me a message in the format: key({ \"text\": the name of the button, such as Enter or Return })\n\nWhen the task is completed, send me a message in the format: finish({})\n\nRemember, my screen size is 1440/900, which means that the screenshots I send have this size, so you should provide more precise coordinates for the cursor.\n\nAlso, remember that you can'\''t use the ` symbol for command highlighting. The message with the command should be presented as text without highlights."
                                         }
                                 ]
                         },
@@ -126,6 +126,20 @@ export const performAction = async (action: NextAction) => {
                         await keyboard.type(action.text);
                         // Reset delay back to default if needed
                         keyboard.config.autoDelayMs = 500;
+                        break;
+                case 'key':
+                        const keyMap = {
+                                Enter: Key.Enter,
+                        };
+                        const keys = action.text.split('+').map((key) => {
+                                const mappedKey = keyMap[key as keyof typeof keyMap];
+                                if (!mappedKey) {
+                                        throw new Error(`Tried to press unknown key: ${key}`);
+                                }
+                                return mappedKey;
+                        });
+                        console.log("keys: ", keys)
+                        await keyboard.pressKey(...keys);
                         break;
                 case 'screenshot':
                         // Don't do anything since we always take a screenshot after each step
@@ -203,7 +217,7 @@ export const runAgent = async (
                                                 content: [
                                                         {
                                                                 type: 'text',
-                                                                text: 'Here is a screenshot after the action was executed',
+                                                                text: `Here is a screenshot after the action was executed.`,
                                                         },
                                                         {
                                                                 type: "image_url",
