@@ -1,295 +1,230 @@
-import {
-  BetaMessage,
-  BetaMessageParam,
-} from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { Button, Key, keyboard, mouse, Point } from '@nut-tree-fork/nut-js';
 // import { createCanvas, loadImage } from 'canvas';
 import { desktopCapturer, screen } from 'electron';
-import { anthropic } from './anthropic';
+import { openai_client } from './openai';
 import { AppState, NextAction } from './types';
 import { extractAction } from './extractAction';
+import { ChatCompletionMessage, ChatCompletionMessageParam } from 'openai/resources';
 
 const MAX_STEPS = 50;
 
 function getScreenDimensions(): { width: number; height: number } {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  return primaryDisplay.size;
+        const primaryDisplay = screen.getPrimaryDisplay();
+        console.log("primaryDisplay: ", primaryDisplay.size)
+        return primaryDisplay.size;
 }
 
 function getAiScaledScreenDimensions(): { width: number; height: number } {
-  const { width, height } = getScreenDimensions();
-  const aspectRatio = width / height;
+        const { width, height } = getScreenDimensions();
+        const aspectRatio = width / height;
 
-  let scaledWidth: number;
-  let scaledHeight: number;
+        let scaledWidth: number;
+        let scaledHeight: number;
 
-  if (aspectRatio > 1280 / 800) {
-    // Width is the limiting factor
-    scaledWidth = 1280;
-    scaledHeight = Math.round(1280 / aspectRatio);
-  } else {
-    // Height is the limiting factor
-    scaledHeight = 800;
-    scaledWidth = Math.round(800 * aspectRatio);
-  }
+        if (aspectRatio >= 1440 / 900) {
+                // Width is the limiting factor
+                scaledWidth = 1440;
+                scaledHeight = Math.round(1440 / aspectRatio);
+        } else {
+                // Height is the limiting factor
+                scaledHeight = 800;
+                scaledWidth = Math.round(800 * aspectRatio);
+        }
 
-  return { width: scaledWidth, height: scaledHeight };
+        return { width: scaledWidth, height: scaledHeight };
 }
 
 const getScreenshot = async () => {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.size;
-  const aiDimensions = getAiScaledScreenDimensions();
+        const primaryDisplay = screen.getPrimaryDisplay();
+        const { width, height } = primaryDisplay.size;
+        const aiDimensions = getAiScaledScreenDimensions();
+        console.log("aiDimensions: ", aiDimensions)
 
-  const sources = await desktopCapturer.getSources({
-    types: ['screen'],
-    thumbnailSize: { width, height },
-  });
-  const primarySource = sources[0]; // Assuming the first source is the primary display
+        const sources = await desktopCapturer.getSources({
+                types: ['screen'],
+                thumbnailSize: { width, height },
+        });
+        const primarySource = sources[0]; // Assuming the first source is the primary display
 
-  if (primarySource) {
-    const screenshot = primarySource.thumbnail;
-    // Resize the screenshot to AI dimensions
-    const resizedScreenshot = screenshot.resize(aiDimensions);
-    // Convert the resized screenshot to a base64-encoded PNG
-    const base64Image = resizedScreenshot.toPNG().toString('base64');
-    return base64Image;
-  }
-  throw new Error('No display found for screenshot');
+        if (primarySource) {
+                const screenshot = primarySource.thumbnail;
+                // Resize the screenshot to AI dimensions
+                const resizedScreenshot = screenshot.resize(aiDimensions);
+                // Convert the resized screenshot to a base64-encoded PNG
+                const base64Image = resizedScreenshot.toPNG().toString('base64');
+                return base64Image;
+        }
+        throw new Error('No display found for screenshot');
 };
 
 const mapToAiSpace = (x: number, y: number) => {
-  const { width, height } = getScreenDimensions();
-  const aiDimensions = getAiScaledScreenDimensions();
-  return {
-    x: (x * aiDimensions.width) / width,
-    y: (y * aiDimensions.height) / height,
-  };
+        const { width, height } = getScreenDimensions();
+        const aiDimensions = getAiScaledScreenDimensions();
+        return {
+                x: (x * aiDimensions.width) / width,
+                y: (y * aiDimensions.height) / height,
+        };
 };
 
 const mapFromAiSpace = (x: number, y: number) => {
-  const { width, height } = getScreenDimensions();
-  const aiDimensions = getAiScaledScreenDimensions();
-  return {
-    x: (x * width) / aiDimensions.width,
-    y: (y * height) / aiDimensions.height,
-  };
+        const { width, height } = getScreenDimensions();
+        const aiDimensions = getAiScaledScreenDimensions();
+        return {
+                x: (x * width) / aiDimensions.width,
+                y: (y * height) / aiDimensions.height,
+        };
 };
 
 const promptForAction = async (
-  runHistory: BetaMessageParam[],
-): Promise<BetaMessageParam> => {
-  // Strip images from all but the last message
-  const historyWithoutImages = runHistory.map((msg, index) => {
-    if (index === runHistory.length - 1) return msg; // Keep the last message intact
-    if (Array.isArray(msg.content)) {
-      return {
-        ...msg,
-        content: msg.content.map((item) => {
-          if (item.type === 'tool_result' && typeof item.content !== 'string') {
-            return {
-              ...item,
-              content: item.content?.filter((c) => c.type !== 'image'),
-            };
-          }
-          return item;
-        }),
-      };
-    }
-    return msg;
-  });
+        runHistory: ChatCompletionMessageParam[]
+): Promise<ChatCompletionMessageParam> => {
 
-  const message = await anthropic.beta.messages.create({
-    model: 'claude-3-5-sonnet-20241022',
-    max_tokens: 1024,
-    tools: [
-      {
-        type: 'computer_20241022',
-        name: 'computer',
-        display_width_px: getAiScaledScreenDimensions().width,
-        display_height_px: getAiScaledScreenDimensions().height,
-        display_number: 1,
-      },
-      {
-        name: 'finish_run',
-        description:
-          'Call this function when you have achieved the goal of the task.',
-        input_schema: {
-          type: 'object',
-          properties: {
-            success: {
-              type: 'boolean',
-              description: 'Whether the task was successful',
-            },
-            error: {
-              type: 'string',
-              description: 'The error message if the task was not successful',
-            },
-          },
-          required: ['success'],
-        },
-      },
-    ],
-    system: `The user will ask you to perform a task and you should use their computer to do so. After each step, take a screenshot and carefully evaluate if you have achieved the right outcome. Explicitly show your thinking: "I have evaluated step X..." If not correct, try again. Only when you confirm a step was executed correctly should you move on to the next one. Note that you have to click into the browser address bar before typing a URL. You should always call a tool! Always return a tool call. Remember call the finish_run tool when you have achieved the goal of the task. Do not explain you have finished the task, just call the tool. Use keyboard shortcuts to navigate whenever possible.`,
-    // tool_choice: { type: 'any' },
-    messages: historyWithoutImages,
-    betas: ['computer-use-2024-10-22'],
-  });
+        const message = await openai_client.chat.completions.create({
+                messages: [
+                        {
+                                role: "system",
+                                content: [
+                                        {
+                                                type: "text",
+                                                text: "The user will ask you to complete a task, and you must use their computer to do so. After each step, take a screenshot using the command screenshot({}) and carefully assess whether you have achieved the desired result. Clearly show your thoughts: \"I assessed step X...\". If the result is not correct, try again. Only when you are sure that the step has been completed correctly, proceed to the next one. Note that before entering a URL, you need to click on the browser'\''s address bar. Always call the tool! Always return the tool call.\n\nRespond only in the format described below. You are not allowed to respond in any other way except for the commands: screenshot, mouse_move, left_click, type. Only the command in responses, no arbitrary text.\n\nWhen you need to get a screenshot of the screen to understand where to go, you should write: screenshot({})\n\nIf you need to move the mouse cursor to complete the task, send me a message in the format: mouse_move({ \"x\": value of the cursor on the screen on the x-axis, \"y\": value of the cursor on the screen on the y-axis })\n\nIf you need to click the left mouse button to complete the task, you should send me a message in the format: left_click({})\n\nIf you need to type some text into a field to complete the task, you should send me a message in the format: type({ \"text\": the text to be entered into the input field })\n\nWhen the task is completed, send me a message in the format: finish({})\n\nRemember, my screen size is 1440/900, which means that the screenshots I send have this size, so you should provide more precise coordinates for the cursor.\n\nAlso, remember that you can'\''t use the ` symbol for command highlighting. The message with the command should be presented as text without highlights."
+                                        }
+                                ]
+                        },
+                        ...runHistory,
+                ],
+                model: 'gpt-4o',
+                temperature: 0.05,
+                max_tokens: 2048,
+                top_p: 1,
+                frequency_penalty: 0,
+                presence_penalty: 0,
+                response_format: {
+                        "type": "text"
+                },
+        });
 
-  return { content: message.content, role: message.role };
+        console.log("RETURN FROM GPT: ", message.choices[0].message)
+
+        return { content: message.choices[0].message.content, role: message.choices[0].message.role };
 };
 
 export const performAction = async (action: NextAction) => {
-  switch (action.type) {
-    case 'mouse_move':
-      const { x, y } = mapFromAiSpace(action.x, action.y);
-      await mouse.setPosition(new Point(x, y));
-      break;
-    case 'left_click_drag':
-      const { x: dragX, y: dragY } = mapFromAiSpace(action.x, action.y);
-      const currentPosition = await mouse.getPosition();
-      await mouse.drag([currentPosition, new Point(dragX, dragY)]);
-      break;
-    case 'cursor_position':
-      const position = await mouse.getPosition();
-      const aiPosition = mapToAiSpace(position.x, position.y);
-      // TODO: actually return the position
-      break;
-    case 'left_click':
-      await mouse.leftClick();
-      break;
-    case 'right_click':
-      await mouse.rightClick();
-      break;
-    case 'middle_click':
-      await mouse.click(Button.MIDDLE);
-      break;
-    case 'double_click':
-      await mouse.doubleClick(Button.LEFT);
-      break;
-    case 'type':
-      // Set typing delay to 0ms for instant typing
-      keyboard.config.autoDelayMs = 0;
-      await keyboard.type(action.text);
-      // Reset delay back to default if needed
-      keyboard.config.autoDelayMs = 500;
-      break;
-    case 'key':
-      const keyMap = {
-        Return: Key.Enter,
-      };
-      const keys = action.text.split('+').map((key) => {
-        const mappedKey = keyMap[key as keyof typeof keyMap];
-        if (!mappedKey) {
-          throw new Error(`Tried to press unknown key: ${key}`);
+        switch (action.type) {
+                case 'mouse_move':
+                        const { x, y } = mapFromAiSpace(action.x, action.y);
+                        await mouse.setPosition(new Point(x, y));
+                        break;
+                case 'left_click':
+                        await mouse.leftClick();
+                        break;
+                case 'right_click':
+                        await mouse.rightClick();
+                        break;
+                case 'type':
+                        // Set typing delay to 0ms for instant typing
+                        keyboard.config.autoDelayMs = 0;
+                        await keyboard.type(action.text);
+                        // Reset delay back to default if needed
+                        keyboard.config.autoDelayMs = 500;
+                        break;
+                case 'screenshot':
+                        // Don't do anything since we always take a screenshot after each step
+                        break;
+                default:
+                throw new Error(`Unsupported action: ${action.type}`);
         }
-        return mappedKey;
-      });
-      await keyboard.pressKey(...keys);
-      break;
-    case 'screenshot':
-      // Don't do anything since we always take a screenshot after each step
-      break;
-    default:
-      throw new Error(`Unsupported action: ${action.type}`);
-  }
 };
 
 export const runAgent = async (
-  setState: (state: AppState) => void,
-  getState: () => AppState,
+        setState: (state: AppState) => void,
+        getState: () => AppState,
 ) => {
-  setState({
-    ...getState(),
-    running: true,
-    runHistory: [{ role: 'user', content: getState().instructions ?? '' }],
-    error: null,
-  });
-
-  while (getState().running) {
-    // Add this check at the start of the loop
-    if (getState().runHistory.length >= MAX_STEPS * 2) {
-      setState({
-        ...getState(),
-        error: 'Maximum steps exceeded',
-        running: false,
-      });
-      break;
-    }
-
-    try {
-      const message = await promptForAction(getState().runHistory);
-      setState({
-        ...getState(),
-        runHistory: [...getState().runHistory, message],
-      });
-      const { action, reasoning, toolId } = extractAction(
-        message as BetaMessage,
-      );
-      console.log('REASONING', reasoning);
-      console.log('ACTION', action);
-
-      if (action.type === 'error') {
         setState({
-          ...getState(),
-          error: action.message,
-          running: false,
-        });
-        break;
-      } else if (action.type === 'finish') {
-        setState({
-          ...getState(),
-          running: false,
-        });
-        break;
-      }
-      if (!getState().running) {
-        break;
-      }
-      performAction(action);
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      if (!getState().running) {
-        break;
-      }
-
-      setState({
-        ...getState(),
-        runHistory: [
-          ...getState().runHistory,
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: toolId,
-                content: [
-                  {
-                    type: 'text',
-                    text: 'Here is a screenshot after the action was executed',
-                  },
-                  {
-                    type: 'image',
-                    source: {
-                      type: 'base64',
-                      media_type: 'image/png',
-                      data: await getScreenshot(),
-                    },
-                  },
+                ...getState(),
+                running: true,
+                runHistory: [
+                        { role: 'user', content: getState().instructions ?? '' }
                 ],
-              },
-            ],
-          },
-        ],
-      });
-    } catch (error: unknown) {
-      setState({
-        ...getState(),
-        error:
-          error instanceof Error ? error.message : 'An unknown error occurred',
-        running: false,
-      });
-      break;
-    }
+                error: null,
+        });
+
+        while (getState().running) {
+                // Add this check at the start of the loop
+                if (getState().runHistory.length >= MAX_STEPS * 2) {
+                        setState({
+                                ...getState(),
+                                error: 'Maximum steps exceeded',
+                                running: false,
+                        });
+                        break;
+                }
+
+                try {
+                        const message = await promptForAction(getState().runHistory);
+                        setState({
+                                ...getState(),
+                                runHistory: [...getState().runHistory, message],
+                        });
+                        const { action } = extractAction(
+                                message as ChatCompletionMessage,
+                        );
+                        console.log('ACTION', action);
+
+                        if (action.type === 'error') {
+                                setState({
+                                        ...getState(),
+                                        error: action.message,
+                                        running: false,
+                                });
+                                break;
+                        } else if (action.type === 'finish') {
+                                setState({
+                                        ...getState(),
+                                        running: false,
+                                });
+                                break;
+                        }
+                        if (!getState().running) {
+                                break;
+                        }
+                        performAction(action);
+
+                        await new Promise((resolve) => setTimeout(resolve, 500));
+                        if (!getState().running) {
+                                break;
+                        }
+
+                        setState({
+                                ...getState(),
+                                runHistory: [
+                                        ...getState().runHistory,
+                                        {
+                                                role: "user",
+                                                content: [
+                                                        {
+                                                                type: 'text',
+                                                                text: 'Here is a screenshot after the action was executed',
+                                                        },
+                                                        {
+                                                                type: "image_url",
+                                                                image_url: {
+                                                                        url: `data:image/png;base64, ${await getScreenshot()}`,
+                                                                        detail: "high"
+                                                                }
+                                                        }
+
+                                                ],
+                                        },
+                                ],
+                        });
+                } catch (error: unknown) {
+                        setState({
+                                ...getState(),
+                                error:
+                                error instanceof Error ? error.message : 'An unknown error occurred',
+                                running: false,
+                        });
+                        break;
+                }
   }
 };

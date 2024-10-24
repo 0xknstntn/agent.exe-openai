@@ -1,132 +1,70 @@
 import { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { NextAction } from './types';
+import { ChatCompletionMessage, ChatCompletionMessageParam } from 'openai/resources';
 
 export const extractAction = (
-  message: BetaMessageParam,
+  message: ChatCompletionMessageParam,
 ): {
-  action: NextAction;
-  reasoning: string;
-  toolId: string;
+    action: NextAction;
 } => {
-  const reasoning = message.content
-    .filter((content) => content.type === 'text')
-    .map((content) => content.text)
-    .join(' ');
+        const not_parsed_action = String(message.content);
+        let nextAction: NextAction;
 
-  const lastMessage = message.content[message.content.length - 1];
-  if (typeof lastMessage === 'string') {
-    return {
-      action: { type: 'error', message: 'No tool called' },
-      reasoning,
-      toolId: '',
-    };
-  }
+        if (not_parsed_action.indexOf("screenshot({})") != -1) {
+                return { action: { type: 'screenshot' } }; 
+        }
 
-  if (lastMessage.type !== 'tool_use') {
-    return {
-      action: { type: 'error', message: 'No tool called' },
-      reasoning,
-      toolId: '',
-    };
-  }
-  if (lastMessage.name === 'finish_run') {
-    const input = lastMessage.input as {
-      success: boolean;
-      error?: string;
-    };
-    if (!input.success) {
-      return {
-        action: {
-          type: 'error',
-          message: input.error ?? 'Agent encountered unknown error',
-        },
-        reasoning,
-        toolId: lastMessage.id,
-      };
-    }
-    return {
-      action: { type: 'finish' },
-      reasoning,
-      toolId: lastMessage.id,
-    };
-  }
-  if (lastMessage.name !== 'computer') {
-    return {
-      action: {
-        type: 'error',
-        message: `Wrong tool called: ${lastMessage.name}`,
-      },
-      reasoning,
-      toolId: '',
-    };
-  }
+        if (not_parsed_action.indexOf("left_click({})") != -1) {
+                return { action: { type: 'left_click' } }; 
+        }
 
-  const { action, coordinate, text } = lastMessage.input as {
-    action: string;
-    coordinate?: [number, number];
-    text?: string;
-  };
+        if (not_parsed_action.indexOf("mouse_move") != -1) {
+                let index = not_parsed_action.indexOf("mouse_move")
+                let action = not_parsed_action.substring(index)
+                let value = JSON.parse(((String(action).substring("mouse_move".length)).replace(")", "")).replace("(", ""))  
+                return { action: { type: "mouse_move", x: value.x, y: value.y } }
+        }
 
-  // Convert toolUse into NextAction
-  let nextAction: NextAction;
-  switch (action) {
-    case 'type':
-    case 'key':
-      if (!text) {
-        nextAction = {
-          type: 'error',
-          message: `No text provided for ${action}`,
-        };
-      } else {
-        nextAction = { type: action, text };
-      }
-      break;
-    case 'mouse_move':
-      if (!coordinate) {
-        nextAction = { type: 'error', message: 'No coordinate provided' };
-      } else {
-        const [x, y] = coordinate;
-        nextAction = { type: 'mouse_move', x, y };
-      }
-      break;
-    case 'left_click':
-      nextAction = { type: 'left_click' };
-      break;
-    case 'left_click_drag':
-      if (!coordinate) {
-        nextAction = {
-          type: 'error',
-          message: 'No coordinate provided for drag',
-        };
-      } else {
-        const [x, y] = coordinate;
-        nextAction = { type: 'left_click_drag', x, y };
-      }
-      break;
-    case 'right_click':
-      nextAction = { type: 'right_click' };
-      break;
-    case 'middle_click':
-      nextAction = { type: 'middle_click' };
-      break;
-    case 'double_click':
-      nextAction = { type: 'double_click' };
-      break;
-    case 'screenshot':
-      nextAction = { type: 'screenshot' };
-      break;
-    case 'cursor_position':
-      nextAction = { type: 'cursor_position' };
-      break;
-    case 'finish':
-      nextAction = { type: 'finish' };
-      break;
-    default:
-      nextAction = {
-        type: 'error',
-        message: `Unsupported computer action: ${action}`,
-      };
-  }
+        if (not_parsed_action.indexOf("finish({})") != -1) {
+                return { action: { type: 'finish' } }; 
+        }
 
-  return { action: nextAction, reasoning, toolId: lastMessage.id };
+        if (not_parsed_action.indexOf("type") != -1) {
+                let index = not_parsed_action.indexOf("type")
+                let action = not_parsed_action.substring(index)
+                let value = JSON.parse(((String(action).substring("type".length)).replace(")", "")).replace("(", ""))  
+                return { action: { type: "type", text: value.text } }
+        }
+
+
+        /*
+        // Convert toolUse into NextAction
+        let action_parsed = String(action).indexOf("({")
+        let action_subs = String(action).substring(0, action_parsed)
+        switch (action_subs) {
+                case 'screenshot':
+                        nextAction = { type: 'screenshot' };
+                        break;
+                case 'left_click':
+                        nextAction = { type: "left_click" };
+                        break;
+                case 'mouse_move':
+                        let value = JSON.parse(((String(action).substring(action_parsed)).replace(")", "")).replace("(", ""))
+
+                        nextAction = { type: "mouse_move", x: value.x, y: value.y }
+                        break;
+                case "finish":
+                        nextAction = { type: 'finish' };
+                        break;
+                default:
+                        nextAction = {
+                                type: 'error',
+                                message: `Unsupported computer action: ${action}`,
+                        };
+                        break
+        }*/
+
+        
+
+        return { action: { type: 'error', message: `Unsupported computer action: ${not_parsed_action}`} };
 };

@@ -1,16 +1,12 @@
-import { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
+import { ChatCompletionMessageParam } from "openai/resources";
 
 export type NextAction =
   | { type: 'key'; text: string }
   | { type: 'type'; text: string }
   | { type: 'mouse_move'; x: number; y: number }
   | { type: 'left_click' }
-  | { type: 'left_click_drag'; x: number; y: number }
   | { type: 'right_click' }
-  | { type: 'middle_click' }
-  | { type: 'double_click' }
   | { type: 'screenshot' }
-  | { type: 'cursor_position' }
   | { type: 'finish' }
   | { type: 'error'; message: string };
 
@@ -20,7 +16,7 @@ export type AppState = {
   running: boolean;
   error: string | null;
 
-  runHistory: BetaMessageParam[];
+  runHistory: ChatCompletionMessageParam[];
 
   RUN_AGENT: () => void;
   STOP_RUN: () => void;
